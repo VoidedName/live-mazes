@@ -1,0 +1,3 @@
+- fix side winder
+- do random walk?
+    - history & visualization of generation?
