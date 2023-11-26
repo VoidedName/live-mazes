@@ -1,14 +1,15 @@
 import PRNG from 'random-seedable/@types/PRNG';
 import './App.css'
-import { Cell, Direction, Maze, OptionalDirection, carve_path, cell_id, move_dir, neighbors, noclip_directions_for } from './maze/types'
+import { Cell, Direction, Maze, MazeGenerationHistory, OptionalDirection, carve_path, cell_id, copy_maze, move_dir, neighbors, noclip_directions_for } from './maze/types'
 import { XORShift64 } from "random-seedable"
-import {useState} from "react"
+import {useEffect, useState} from "react"
 import { exhaust_switch } from './utils/switch';
 
 // bias: nr between 0 and 1, this dictates how likely we are to go to the right
-function generate_maze_binary_tree(cols: number, rows: number, r: PRNG, bias: number): Maze {
+function generate_maze_binary_tree(cols: number, rows: number, r: PRNG, bias: number): [Maze, MazeGenerationHistory] {
     const maze = Maze(rows, cols);
-   
+    const history = [copy_maze(maze)];
+
     // Maze: Exaclty one path between ANY point A and B => No Cycles & No Islands
     //
     // for row: 
@@ -41,15 +42,17 @@ function generate_maze_binary_tree(cols: number, rows: number, r: PRNG, bias: nu
             }
 
             carve_path(cell, maze, dir)
+            history.push(copy_maze(maze))
         }
     }
 
-    return maze;
+    return [maze, history] 
 }
+
 // bias: nr between 0 and 1, this dictates how likely we are to go to the right
-function generate_maze_sidewinder(cols: number, rows: number, r: PRNG, bias: number): Maze {
+function generate_maze_sidewinder(cols: number, rows: number, r: PRNG, bias: number): [Maze, MazeGenerationHistory] {
     const maze = Maze(rows, cols);
-   
+    const history: MazeGenerationHistory = [];
     // Maze: Exaclty one path between ANY point A and B => No Cycles & No Islands
     //
     // for row: 
@@ -63,6 +66,7 @@ function generate_maze_sidewinder(cols: number, rows: number, r: PRNG, bias: num
         let left = 0;
         let right = left;
         for (let cell of row) {
+            history.push(copy_maze(maze));
             right += 1;
             // decide direction to go
             // what if we're at the right edge / top edge? => pick the only available direction 
@@ -100,11 +104,13 @@ function generate_maze_sidewinder(cols: number, rows: number, r: PRNG, bias: num
         }
     }
 
-    return maze;
+    history.push(copy_maze(maze));
+    return [maze, history];
 }
 
-function generate_maze_random_walk(width: number, height: number, r: PRNG): Maze {
+function generate_maze_random_walk(width: number, height: number, r: PRNG): [Maze, MazeGenerationHistory] {
     let maze = Maze(width, height)
+    const history = [copy_maze(maze)];
     
     // pick random starting cell
     // until all cells have been visited
@@ -132,9 +138,10 @@ function generate_maze_random_walk(width: number, height: number, r: PRNG): Maze
         }
 
         current = next_cell
+        history.push(copy_maze(maze));
     }
 
-    return maze;
+    return [maze, history];
 }
 
 function DrawMaze({maze, height, width}: {
@@ -267,23 +274,47 @@ type Algorithm = keyof typeof Algorithm;
 function App() {
     const [algorith, set_algorithm] = useState<Algorithm>("side-winder");
     const [show_texture, set_show_texture] = useState<boolean>(false);
+    let [show_step, set_show_step] = useState<number>(0);
+    const [play, set_play] = useState<boolean>(false);
+
 
     let maze: Maze;
-    
+    let history: MazeGenerationHistory;
+
     switch (algorith) {
         case "side-winder":
-             maze = generate_maze_sidewinder(25, 25, new XORShift64(2023), 0.8)
+             [maze, history] = generate_maze_sidewinder(25, 25, new XORShift64(2023), 0.8)
              break;
         case "binary":
-             maze = generate_maze_binary_tree(25, 25, new XORShift64(2024), 0.5)
+             [maze, history] = generate_maze_binary_tree(25, 25, new XORShift64(2024), 0.5)
              break;
         case "random-walk":
-             maze = generate_maze_random_walk(25, 25, new XORShift64(2025))
+             [maze, history] = generate_maze_random_walk(10, 10, new XORShift64(2025))
              break;
         default: 
             exhaust_switch(algorith)
     }
 
+    if (show_step > history.length - 1) {
+        show_step = history.length - 1;
+        set_show_step(Math.max(0, history.length - 1));
+    }
+    maze = history[show_step];
+    console.log(show_step);
+
+    useEffect(() => {
+        if (play) {
+            let handle = setInterval(() => {
+                set_show_step(f => Math.min(history.length - 1, f + 1));
+                if (history.length - 1 === show_step) {
+                    set_play(false);
+                }
+            }, 100);
+            return () => clearInterval(handle)
+        }
+        return () => {}
+    }, [play, history])
+    
     const width = 400;
     const height = 400;
     const padding = 1;
@@ -302,12 +333,24 @@ function App() {
         </label>
         {show_texture && "Show Texture"}
         </div>
+        {history.length > 0 && (
         <svg width={width} height={height}>
             <g transform={`translate(${padding}, ${padding})`}>
                 {show_texture && <TextureRenderer maze={maze} width={width-2*padding} height={height-2*padding} />}
                 <DrawMaze maze={maze} width={width-2*padding} height={height-2*padding} />
             </g>
         </svg>
+        )}
+        <div>
+        <button onClick={() => set_show_step(p => Math.max(0, p-1))}>previous</button>
+        <button onClick={() => { 
+            set_play(!play)
+            if (!play) {
+                set_show_step(0)
+            }
+        }}>{play ? "stop" : "animate"}</button>
+        <button onClick={() => set_show_step(p => Math.min(history.length-1, p+1))}>next</button>
+        </div>
         </>
     )
 }

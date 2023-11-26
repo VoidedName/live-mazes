@@ -44,6 +44,15 @@ export function Maze(rows: number, columns: number): Maze {
     }
 }
 
+export type MazeGenerationHistory = Maze[];
+
+export function copy_maze(maze: Maze): Maze {
+    return {
+        ...maze,
+        cells: maze.cells.map(row => row.map(cell => ({...cell, walls: {...cell.walls}})))
+    }
+}
+
 export const Direction = {
     "N" : "N",
     "E" : "E",
